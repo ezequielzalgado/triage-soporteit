@@ -1,0 +1,131 @@
+{
+  "name": "Errores: Triage IT → Slack",
+  "nodes": [
+    {
+      "parameters": {},
+      "id": "e8fc92fc-074f-4a40-b5c4-76ffee2b5f97",
+      "name": "1. Error del flujo de soporte",
+      "type": "n8n-nodes-base.errorTrigger",
+      "typeVersion": 1,
+      "position": [
+        0,
+        304
+      ]
+    },
+    {
+      "parameters": {
+        "authentication": "oAuth2",
+        "select": "channel",
+        "channelId": {
+          "__rl": true,
+          "mode": "id",
+          "value": "C0BKCDFDT54",
+          "cachedResultName": "alertas-soporte"
+        },
+        "text": "={{ \":warning: *Error en el flujo de soporte IT*\\n\\n*Flujo:* \" + ($json.workflow?.name || \"Desconocido\") + \"\\n*Nodo:* \" + ($json.execution?.lastNodeExecuted || \"No informado\") + \"\\n*Detalle:* \" + ($json.execution?.error?.message || $json.trigger?.error?.message || \"Sin detalle\") + \"\\n*Ejecución:* \" + ($json.execution?.id || \"No disponible\") }}",
+        "otherOptions": {
+          "includeLinkToWorkflow": true,
+          "mrkdwn": true
+        }
+      },
+      "id": "30998eec-c7a2-43a5-8653-0dc69b96b98d",
+      "name": "2. Avisar error en Slack",
+      "type": "n8n-nodes-base.slack",
+      "typeVersion": 2.5,
+      "position": [
+        320,
+        304
+      ],
+      "webhookId": "577ed6d5-328f-4586-93ed-786886f12f74",
+      "credentials": {
+        "slackOAuth2Api": {
+          "id": "MQq16LLoHmquRgYe",
+          "name": "Slack account"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "resource": "databasePage",
+        "databaseId": {
+          "__rl": true,
+          "mode": "id",
+          "value": "6ee7b685-329d-4ec3-94f7-2bd993057eee",
+          "cachedResultName": "Bandeja de Emails"
+        },
+        "title": "={{ 'ERROR - ' + ($json.workflow?.name || 'Flujo de soporte') + ' - ' + ($json.execution?.id || $now.toMillis()) }}",
+        "propertiesUi": {
+          "propertyValues": [
+            {
+              "key": "Estado|status",
+              "type": "status",
+              "statusValue": "Error"
+            },
+            {
+              "key": "Detalle de error|rich_text",
+              "type": "rich_text",
+              "textContent": "={{ ($json.execution?.error?.message || $json.trigger?.error?.message || 'Error sin detalle') + ' | Nodo: ' + ($json.execution?.lastNodeExecuted || 'No informado') }}"
+            },
+            {
+              "key": "Fecha de recepción|date",
+              "type": "date",
+              "date": "={{ $now.toISO() }}"
+            }
+          ]
+        },
+        "options": {}
+      },
+      "id": "log-error-notion",
+      "name": "3. Registrar error en Notion",
+      "type": "n8n-nodes-base.notion",
+      "typeVersion": 2.2,
+      "position": [
+        320,
+        512
+      ],
+      "retryOnFail": true,
+      "maxTries": 2,
+      "waitBetweenTries": 1000,
+      "credentials": {
+        "notionApi": {
+          "id": "gfKxDFVW38IyQJVK",
+          "name": "Notion account"
+        }
+      }
+    }
+  ],
+  "pinData": {},
+  "connections": {
+    "1. Error del flujo de soporte": {
+      "main": [
+        [
+          {
+            "node": "2. Avisar error en Slack",
+            "type": "main",
+            "index": 0
+          },
+          {
+            "node": "3. Registrar error en Notion",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "active": true,
+  "settings": {
+    "executionOrder": "v1",
+    "binaryMode": "separate",
+    "availableInMCP": true
+  },
+  "versionId": "8ed43593-b4b1-4484-aca6-d5e5be39b2c1",
+  "meta": {
+    "aiBuilderAssisted": true,
+    "builderVariant": "mcp",
+    "instanceId": "97403681c76055a06bc513cb7f16a6bc80140406f2038cef67c17a3bc6304687"
+  },
+  "nodeGroups": [],
+  "id": "jEJXZqPctWeZUBzX",
+  "tags": []
+}

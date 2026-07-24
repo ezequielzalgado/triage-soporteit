@@ -1,0 +1,885 @@
+{
+  "name": "Triage IT: Gmail → Groq → Notion → Slack",
+  "nodes": [
+    {
+      "parameters": {
+        "pollTimes": {
+          "item": [
+            {
+              "mode": "everyMinute"
+            }
+          ]
+        },
+        "simple": false,
+        "maxResults": 5,
+        "filters": {
+          "q": "-from:me",
+          "readStatus": "both"
+        },
+        "options": {}
+      },
+      "id": "c4b629ec-634a-4e53-aa39-33f8a18d968b",
+      "name": "1. Nuevo ticket por Gmail",
+      "type": "n8n-nodes-base.gmailTrigger",
+      "typeVersion": 1.4,
+      "position": [
+        0,
+        304
+      ],
+      "credentials": {
+        "gmailOAuth2": {
+          "id": "WPicppAiRifevGlF",
+          "name": "Gmail account"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "assignments": {
+          "assignments": [
+            {
+              "id": "subject",
+              "name": "asunto",
+              "value": "={{ $json.subject || '(Sin asunto)' }}",
+              "type": "string"
+            },
+            {
+              "id": "from",
+              "name": "remitente",
+              "value": "={{ $json.from.text }}",
+              "type": "string"
+            },
+            {
+              "id": "email",
+              "name": "emailCliente",
+              "value": "={{ $json.from.value[0].address.toLowerCase() }}",
+              "type": "string"
+            },
+            {
+              "id": "client-name",
+              "name": "nombreCliente",
+              "value": "={{ $json.from.value[0].name || $json.from.value[0].address.split('@')[0] }}",
+              "type": "string"
+            },
+            {
+              "id": "body",
+              "name": "contenido",
+              "value": "={{ $json.text || $json.html || $json.snippet || '(Mensaje sin contenido)' }}",
+              "type": "string"
+            },
+            {
+              "id": "message-id",
+              "name": "gmailMessageId",
+              "value": "={{ $json.id }}",
+              "type": "string"
+            },
+            {
+              "id": "thread-id",
+              "name": "gmailThreadId",
+              "value": "={{ $json.threadId }}",
+              "type": "string"
+            },
+            {
+              "id": "received",
+              "name": "fechaRecepcion",
+              "value": "={{ $now.toISO() }}",
+              "type": "string"
+            }
+          ]
+        },
+        "includeOtherFields": true,
+        "options": {}
+      },
+      "id": "8b48cdc7-14b2-4cfb-9244-de58d43c0aa1",
+      "name": "2. Preparar datos del ticket",
+      "type": "n8n-nodes-base.set",
+      "typeVersion": 3.5,
+      "position": [
+        304,
+        304
+      ]
+    },
+    {
+      "parameters": {
+        "promptType": "define",
+        "text": "={{ \"Sos un analista de soporte IT. Analizá este correo. Asunto: \" + $('2. Preparar datos del ticket').item.json.asunto + \". Remitente: \" + $('2. Preparar datos del ticket').item.json.remitente + \". Contenido: \" + $('2. Preparar datos del ticket').item.json.contenido + \". Clasificá urgencia como Alta, Media o Baja. Categoría como Acceso, Hardware, Software, Red u Otro. Redactá una respuesta breve, profesional y sin prometer tiempos. Devolvé solo el formato solicitado.\" }}",
+        "hasOutputParser": true,
+        "batching": {}
+      },
+      "id": "5641c276-ee49-4ff7-8a27-dadcef818ae5",
+      "name": "3. Groq clasifica el ticket",
+      "type": "@n8n/n8n-nodes-langchain.chainLlm",
+      "typeVersion": 1.9,
+      "position": [
+        1024,
+        304
+      ],
+      "retryOnFail": true,
+      "maxTries": 2,
+      "waitBetweenTries": 1500
+    },
+    {
+      "parameters": {
+        "jsonSchemaExample": "{ \"urgencia\": \"Alta\", \"categoria\": \"Acceso\", \"resumen\": \"El usuario no puede ingresar al sistema.\", \"respuesta_borrador\": \"Hola, recibimos tu consulta y estamos revisando el acceso.\", \"requiere_aprobacion\": true }"
+      },
+      "id": "d6e04634-7540-4b10-978e-31b8acc224f7",
+      "name": "Salida JSON del triage",
+      "type": "@n8n/n8n-nodes-langchain.outputParserStructured",
+      "typeVersion": 1.3,
+      "position": [
+        1168,
+        528
+      ]
+    },
+    {
+      "parameters": {
+        "resource": "databasePage",
+        "databaseId": {
+          "__rl": true,
+          "mode": "id",
+          "value": "6ee7b685-329d-4ec3-94f7-2bd993057eee",
+          "cachedResultName": "Bandeja de Emails"
+        },
+        "title": "={{ $('2. Preparar datos del ticket').item.json.asunto }}",
+        "propertiesUi": {
+          "propertyValues": [
+            {
+              "key": "Email Cliente|email",
+              "type": "email",
+              "emailValue": "={{ $('2. Preparar datos del ticket').item.json.emailCliente }}"
+            },
+            {
+              "key": "Resumen IA|rich_text",
+              "type": "rich_text",
+              "textContent": "={{ $('3. Groq clasifica el ticket').item.json.output.resumen }}"
+            },
+            {
+              "key": "Urgencia|select",
+              "type": "select",
+              "selectValue": "={{ $('3. Groq clasifica el ticket').item.json.output.urgencia }}"
+            },
+            {
+              "key": "Estado|status",
+              "type": "status",
+              "statusValue": "Esperando Aprobación"
+            },
+            {
+              "key": "Categoría|select",
+              "type": "select",
+              "selectValue": "={{ $('3. Groq clasifica el ticket').item.json.output.categoria }}"
+            },
+            {
+              "key": "Respuesta Borrador|rich_text",
+              "type": "rich_text",
+              "textContent": "={{ $('3. Groq clasifica el ticket').item.json.output.respuesta_borrador }}"
+            },
+            {
+              "key": "ID Mensaje Gmail|rich_text",
+              "type": "rich_text",
+              "textContent": "={{ $('2. Preparar datos del ticket').item.json.gmailMessageId }}"
+            },
+            {
+              "key": "ID Hilo Gmail|rich_text",
+              "type": "rich_text",
+              "textContent": "={{ $('2. Preparar datos del ticket').item.json.gmailThreadId }}"
+            },
+            {
+              "key": "Fecha de recepción|date",
+              "type": "date",
+              "date": "={{ $('2. Preparar datos del ticket').item.json.fechaRecepcion }}"
+            },
+            {
+              "key": "Cliente|relation",
+              "type": "relation",
+              "relationValue": [
+                "={{ $json.clientePageId }}"
+              ]
+            }
+          ]
+        },
+        "options": {}
+      },
+      "id": "303e6370-8158-41c2-810d-6e7fc31f4fff",
+      "name": "4. Registrar ticket en Notion",
+      "type": "n8n-nodes-base.notion",
+      "typeVersion": 2.2,
+      "position": [
+        2272,
+        304
+      ],
+      "retryOnFail": true,
+      "maxTries": 2,
+      "waitBetweenTries": 1000,
+      "credentials": {
+        "notionApi": {
+          "id": "gfKxDFVW38IyQJVK",
+          "name": "Notion account"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "authentication": "oAuth2",
+        "operation": "sendAndWait",
+        "select": "channel",
+        "channelId": {
+          "__rl": true,
+          "mode": "id",
+          "value": "C0BKCDFDT54",
+          "cachedResultName": "alertas-soporte"
+        },
+        "message": "={{ '*Ticket IT para validar*\\n\\n*Asunto:* ' + $('2. Preparar datos del ticket').item.json.asunto + '\\n*Cliente:* ' + $('2. Preparar datos del ticket').item.json.emailCliente + '\\n*Urgencia:* ' + $('3. Groq clasifica el ticket').item.json.output.urgencia + '\\n*Categoría:* ' + $('3. Groq clasifica el ticket').item.json.output.categoria + '\\n\\n*Resumen:*\\n' + $('3. Groq clasifica el ticket').item.json.output.resumen + '\\n\\n*Respuesta propuesta:*\\n' + $('3. Groq clasifica el ticket').item.json.output.respuesta_borrador + '\\n\\n¿Autorizar el envío?' }}",
+        "approvalOptions": {
+          "values": {
+            "approvalType": "double",
+            "approveLabel": "Enviar respuesta",
+            "disapproveLabel": "No enviar"
+          }
+        },
+        "options": {
+          "limitWaitTime": {
+            "values": {
+              "resumeAmount": 8
+            }
+          },
+          "appendAttribution": false
+        }
+      },
+      "id": "495932ed-b133-4a30-b556-041b3db83f3e",
+      "name": "5. Esperar aprobación en Slack",
+      "type": "n8n-nodes-base.slack",
+      "typeVersion": 2.5,
+      "position": [
+        2512,
+        304
+      ],
+      "webhookId": "072813c9-f148-40bd-8e0d-33630e51aa98",
+      "credentials": {
+        "slackOAuth2Api": {
+          "id": "MQq16LLoHmquRgYe",
+          "name": "Slack account"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "strict",
+            "version": 3
+          },
+          "conditions": [
+            {
+              "leftValue": "={{ $json.data.approved }}",
+              "operator": {
+                "type": "boolean",
+                "operation": "true",
+                "singleValue": true
+              },
+              "rightValue": true,
+              "id": "0da79419-b2b5-4cd7-962c-1c71ecc24da5"
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "id": "badb7aeb-0ee2-4838-bad3-928f2d250436",
+      "name": "6. ¿Respuesta aprobada?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.3,
+      "position": [
+        2752,
+        304
+      ]
+    },
+    {
+      "parameters": {
+        "operation": "reply",
+        "messageId": "={{ $('1. Nuevo ticket por Gmail').item.json.id }}",
+        "emailType": "text",
+        "message": "={{ $('3. Groq clasifica el ticket').item.json.output.respuesta_borrador }}",
+        "options": {
+          "appendAttribution": false,
+          "replyToSenderOnly": true
+        }
+      },
+      "id": "d60f8098-ddbe-44ab-9206-c50c8570d461",
+      "name": "7. Enviar respuesta aprobada",
+      "type": "n8n-nodes-base.gmail",
+      "typeVersion": 2.2,
+      "position": [
+        2992,
+        192
+      ],
+      "webhookId": "b3db3ac1-e95e-44c1-8728-110b925d20b0",
+      "retryOnFail": true,
+      "maxTries": 2,
+      "waitBetweenTries": 1000,
+      "credentials": {
+        "gmailOAuth2": {
+          "id": "WPicppAiRifevGlF",
+          "name": "Gmail account"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "resource": "databasePage",
+        "operation": "getAll",
+        "databaseId": {
+          "__rl": true,
+          "mode": "id",
+          "value": "c2ce8e3f-543a-42be-bd68-4d74cd357a21"
+        },
+        "limit": 1,
+        "filterType": "manual",
+        "matchType": "allFilters",
+        "filters": {
+          "conditions": [
+            {
+              "key": "Email|email",
+              "type": "email",
+              "condition": "equals",
+              "emailValue": "={{ $('2. Preparar datos del ticket').item.json.emailCliente }}"
+            }
+          ]
+        },
+        "options": {}
+      },
+      "id": "lookup-client-notion",
+      "name": "4. Buscar cliente por email",
+      "type": "n8n-nodes-base.notion",
+      "typeVersion": 2.2,
+      "position": [
+        1312,
+        304
+      ],
+      "retryOnFail": true,
+      "maxTries": 2,
+      "waitBetweenTries": 1000,
+      "alwaysOutputData": true,
+      "credentials": {
+        "notionApi": {
+          "id": "gfKxDFVW38IyQJVK",
+          "name": "Notion account"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "strict",
+            "version": 3
+          },
+          "conditions": [
+            {
+              "leftValue": "={{ $json.id }}",
+              "operator": {
+                "type": "string",
+                "operation": "notEmpty",
+                "singleValue": true
+              },
+              "rightValue": "",
+              "id": "0394019c-1f70-4060-a50d-d36c05220ee6"
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "id": "client-exists-if",
+      "name": "5. ¿Cliente existente?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.3,
+      "position": [
+        1552,
+        304
+      ]
+    },
+    {
+      "parameters": {
+        "assignments": {
+          "assignments": [
+            {
+              "id": "client-page",
+              "name": "clientePageId",
+              "value": "={{ $json.id }}",
+              "type": "string"
+            }
+          ]
+        },
+        "includeOtherFields": true,
+        "options": {}
+      },
+      "id": "use-existing-client",
+      "name": "6A. Usar cliente existente",
+      "type": "n8n-nodes-base.set",
+      "typeVersion": 3.5,
+      "position": [
+        1792,
+        208
+      ]
+    },
+    {
+      "parameters": {
+        "resource": "databasePage",
+        "databaseId": {
+          "__rl": true,
+          "mode": "id",
+          "value": "c2ce8e3f-543a-42be-bd68-4d74cd357a21",
+          "cachedResultName": "Clientes"
+        },
+        "title": "={{ $('2. Preparar datos del ticket').item.json.nombreCliente }}",
+        "propertiesUi": {
+          "propertyValues": [
+            {
+              "key": "Email|email",
+              "type": "email",
+              "emailValue": "={{ $('2. Preparar datos del ticket').item.json.emailCliente }}"
+            }
+          ]
+        },
+        "options": {}
+      },
+      "id": "create-client-notion",
+      "name": "6B. Crear cliente en Notion",
+      "type": "n8n-nodes-base.notion",
+      "typeVersion": 2.2,
+      "position": [
+        1792,
+        432
+      ],
+      "credentials": {
+        "notionApi": {
+          "id": "gfKxDFVW38IyQJVK",
+          "name": "Notion account"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "assignments": {
+          "assignments": [
+            {
+              "id": "client-page",
+              "name": "clientePageId",
+              "value": "={{ $json.id }}",
+              "type": "string"
+            }
+          ]
+        },
+        "includeOtherFields": true,
+        "options": {}
+      },
+      "id": "use-created-client",
+      "name": "6C. Usar cliente creado",
+      "type": "n8n-nodes-base.set",
+      "typeVersion": 3.5,
+      "position": [
+        2032,
+        432
+      ]
+    },
+    {
+      "parameters": {
+        "resource": "databasePage",
+        "operation": "update",
+        "pageId": {
+          "__rl": true,
+          "mode": "id",
+          "value": "={{ $('4. Registrar ticket en Notion').item.json.id }}"
+        },
+        "propertiesUi": {
+          "propertyValues": [
+            {
+              "key": "Estado|status",
+              "type": "status",
+              "statusValue": "Respondido"
+            },
+            {
+              "key": "Fecha de decisión|date",
+              "type": "date",
+              "date": "={{ $now.toISO() }}"
+            }
+          ]
+        },
+        "options": {}
+      },
+      "id": "update-ticket-responded",
+      "name": "8. Marcar ticket como Respondido",
+      "type": "n8n-nodes-base.notion",
+      "typeVersion": 2.2,
+      "position": [
+        3232,
+        192
+      ],
+      "credentials": {
+        "notionApi": {
+          "id": "gfKxDFVW38IyQJVK",
+          "name": "Notion account"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "resource": "databasePage",
+        "operation": "update",
+        "pageId": {
+          "__rl": true,
+          "mode": "id",
+          "value": "={{ $('4. Registrar ticket en Notion').item.json.id }}"
+        },
+        "propertiesUi": {
+          "propertyValues": [
+            {
+              "key": "Estado|status",
+              "type": "status",
+              "statusValue": "Rechazado"
+            },
+            {
+              "key": "Fecha de decisión|date",
+              "type": "date",
+              "date": "={{ $now.toISO() }}"
+            }
+          ]
+        },
+        "options": {}
+      },
+      "id": "update-ticket-rejected",
+      "name": "8B. Marcar ticket como Rechazado",
+      "type": "n8n-nodes-base.notion",
+      "typeVersion": 2.2,
+      "position": [
+        2992,
+        448
+      ],
+      "credentials": {
+        "notionApi": {
+          "id": "gfKxDFVW38IyQJVK",
+          "name": "Notion account"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "model": "llama-3.3-70b-versatile",
+        "options": {
+          "maxTokensToSample": 600,
+          "temperature": 0.2
+        }
+      },
+      "type": "@n8n/n8n-nodes-langchain.lmChatGroq",
+      "typeVersion": 1,
+      "position": [
+        1024,
+        528
+      ],
+      "id": "ae7c73c9-eb4b-40c4-af55-6eb4bf530001",
+      "name": "Modelo Groq - Llama 3.3 70B",
+      "credentials": {
+        "groqApi": {
+          "id": "OC4wun93HoWPVhJC",
+          "name": "Groq account"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "resource": "databasePage",
+        "operation": "getAll",
+        "databaseId": {
+          "__rl": true,
+          "mode": "id",
+          "value": "6ee7b685-329d-4ec3-94f7-2bd993057eee",
+          "cachedResultName": "Bandeja de Emails"
+        },
+        "limit": 1,
+        "filterType": "manual",
+        "matchType": "allFilters",
+        "filters": {
+          "conditions": [
+            {
+              "key": "ID Mensaje Gmail|rich_text",
+              "type": "rich_text",
+              "condition": "equals",
+              "richTextValue": "={{ $('2. Preparar datos del ticket').item.json.gmailMessageId }}"
+            }
+          ]
+        },
+        "options": {}
+      },
+      "id": "lookup-ticket-gmail-id",
+      "name": "3. Buscar ticket por ID de Gmail",
+      "type": "n8n-nodes-base.notion",
+      "typeVersion": 2.2,
+      "position": [
+        544,
+        304
+      ],
+      "retryOnFail": true,
+      "maxTries": 2,
+      "waitBetweenTries": 1000,
+      "alwaysOutputData": true,
+      "credentials": {
+        "notionApi": {
+          "id": "gfKxDFVW38IyQJVK",
+          "name": "Notion account"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "strict",
+            "version": 3
+          },
+          "conditions": [
+            {
+              "leftValue": "={{ $json.id }}",
+              "operator": {
+                "type": "string",
+                "operation": "empty",
+                "singleValue": true
+              },
+              "rightValue": "",
+              "id": "2b1b5fe2-dc8e-4637-ab42-2a7786a7d9d6"
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "id": "if-new-gmail-message",
+      "name": "3B. ¿Correo nuevo?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.3,
+      "position": [
+        784,
+        304
+      ]
+    }
+  ],
+  "pinData": {},
+  "connections": {
+    "1. Nuevo ticket por Gmail": {
+      "main": [
+        [
+          {
+            "node": "2. Preparar datos del ticket",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Salida JSON del triage": {
+      "ai_outputParser": [
+        [
+          {
+            "node": "3. Groq clasifica el ticket",
+            "type": "ai_outputParser",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "4. Registrar ticket en Notion": {
+      "main": [
+        [
+          {
+            "node": "5. Esperar aprobación en Slack",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "5. Esperar aprobación en Slack": {
+      "main": [
+        [
+          {
+            "node": "6. ¿Respuesta aprobada?",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "6. ¿Respuesta aprobada?": {
+      "main": [
+        [
+          {
+            "node": "7. Enviar respuesta aprobada",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "8B. Marcar ticket como Rechazado",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "4. Buscar cliente por email": {
+      "main": [
+        [
+          {
+            "node": "5. ¿Cliente existente?",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "5. ¿Cliente existente?": {
+      "main": [
+        [
+          {
+            "node": "6A. Usar cliente existente",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "6B. Crear cliente en Notion",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "6A. Usar cliente existente": {
+      "main": [
+        [
+          {
+            "node": "4. Registrar ticket en Notion",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "6B. Crear cliente en Notion": {
+      "main": [
+        [
+          {
+            "node": "6C. Usar cliente creado",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "6C. Usar cliente creado": {
+      "main": [
+        [
+          {
+            "node": "4. Registrar ticket en Notion",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "7. Enviar respuesta aprobada": {
+      "main": [
+        [
+          {
+            "node": "8. Marcar ticket como Respondido",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "3. Groq clasifica el ticket": {
+      "main": [
+        [
+          {
+            "node": "4. Buscar cliente por email",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Modelo Groq - Llama 3.3 70B": {
+      "ai_languageModel": [
+        [
+          {
+            "node": "3. Groq clasifica el ticket",
+            "type": "ai_languageModel",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "2. Preparar datos del ticket": {
+      "main": [
+        [
+          {
+            "node": "3. Buscar ticket por ID de Gmail",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "3. Buscar ticket por ID de Gmail": {
+      "main": [
+        [
+          {
+            "node": "3B. ¿Correo nuevo?",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "3B. ¿Correo nuevo?": {
+      "main": [
+        [
+          {
+            "node": "3. Groq clasifica el ticket",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "active": false,
+  "settings": {
+    "executionOrder": "v1",
+    "binaryMode": "separate",
+    "availableInMCP": true,
+    "errorWorkflow": "jEJXZqPctWeZUBzX",
+    "timezone": "America/Argentina/Buenos_Aires",
+    "saveManualExecutions": true,
+    "saveDataErrorExecution": "all",
+    "saveDataSuccessExecution": "all"
+  },
+  "versionId": "448f4ee4-bdd5-4279-8c84-253ddeae2be7",
+  "meta": {
+    "aiBuilderAssisted": true,
+    "builderVariant": "mcp",
+    "templateCredsSetupCompleted": true,
+    "instanceId": "97403681c76055a06bc513cb7f16a6bc80140406f2038cef67c17a3bc6304687"
+  },
+  "nodeGroups": [],
+  "id": "1wO2gdFYJx0f0Ezc",
+  "tags": []
+}
